@@ -18,6 +18,8 @@ open class VegaScrollFlowLayout: UICollectionViewFlowLayout {
     open var springHardness: CGFloat = 15
     open var isPagingEnabled: Bool = true
     
+    open var scaleMulti: CGFloat = 1
+    
     private var dynamicAnimator: UIDynamicAnimator!
     private var visibleIndexPaths = Set<IndexPath>()
     private var latestDelta: CGFloat = 0
@@ -85,6 +87,17 @@ open class VegaScrollFlowLayout: UICollectionViewFlowLayout {
     override open func layoutAttributesForElements(in rect: CGRect) -> [UICollectionViewLayoutAttributes]? {
         guard let collectionView = collectionView else { return nil }
         let dynamicItems = dynamicAnimator.items(in: rect) as? [UICollectionViewLayoutAttributes]
+        
+        if self.scrollDirection == .horizontal {
+            dynamicItems?.forEach { item in
+                let convertedX = item.center.x - collectionView.contentOffset.x - sectionInset.left
+                item.zIndex = item.indexPath.row
+                transformItemIfNeededX(x: convertedX, item: item)
+            }
+            
+            return dynamicItems
+        }
+        
         dynamicItems?.forEach { item in
 			let convertedY = item.center.y - collectionView.contentOffset.y	- sectionInset.top
 			item.zIndex = item.indexPath.row
@@ -94,6 +107,8 @@ open class VegaScrollFlowLayout: UICollectionViewFlowLayout {
     }
 	
 	private func transformItemIfNeeded(y: CGFloat, item: UICollectionViewLayoutAttributes) {
+
+        
 		guard itemSize.height > 0, y < itemSize.height * 0.5 else {
 			return
 		}
@@ -107,9 +122,25 @@ open class VegaScrollFlowLayout: UICollectionViewFlowLayout {
 		item.alpha = alphaDistributor(x: y)
 	
 	}
+    
+    private func transformItemIfNeededX(x: CGFloat, item: UICollectionViewLayoutAttributes) {
+        guard itemSize.width > 0, x < itemSize.width * 0.5 else {
+            return
+        }
+        
+        let scaleFactor: CGFloat = scaleDistributorHorizontal(x: x)
+        
+        let xDelta = getXDelta(x: x)
+        
+        item.transform3D = CATransform3DTranslate(transformIdentity, xDelta, 0, 0)
+        item.transform3D = CATransform3DScale(item.transform3D, scaleFactor, scaleFactor, scaleFactor)
+        item.alpha = alphaDistributorX(x: x)
+    }
 	
     override open func layoutAttributesForItem(at indexPath: IndexPath) -> UICollectionViewLayoutAttributes? {
-        return dynamicAnimator.layoutAttributesForCell(at: indexPath)!
+        let a = dynamicAnimator.layoutAttributesForCell(at: indexPath)
+        
+        return a
     }
     
     override open func shouldInvalidateLayout(forBoundsChange newBounds: CGRect) -> Bool {
@@ -119,7 +150,7 @@ open class VegaScrollFlowLayout: UICollectionViewFlowLayout {
         
         let touchLocation = collectionView!.panGestureRecognizer.location(in: collectionView)
         
-        dynamicAnimator.behaviors.flatMap { $0 as? UIAttachmentBehavior }.forEach { behavior in
+        dynamicAnimator.behaviors.compactMap { $0 as? UIAttachmentBehavior }.forEach { behavior in
             let attrs = behavior.items.first as! UICollectionViewLayoutAttributes
             attrs.center = getUpdatedBehaviorItemCenter(behavior: behavior, touchLocation: touchLocation)
             self.dynamicAnimator.updateItem(usingCurrentState: attrs)
@@ -168,8 +199,8 @@ open class VegaScrollFlowLayout: UICollectionViewFlowLayout {
     
     private func getUpdatedBehaviorItemCenter(behavior: UIAttachmentBehavior,
                                               touchLocation: CGPoint) -> CGPoint {
-        let yDistanceFromTouch = fabs(touchLocation.y - behavior.anchorPoint.y)
-        let xDistanceFromTouch = fabs(touchLocation.x - behavior.anchorPoint.x)
+        let yDistanceFromTouch = abs(touchLocation.y - behavior.anchorPoint.y)
+        let xDistanceFromTouch = abs(touchLocation.x - behavior.anchorPoint.x)
         let scrollResistance = (yDistanceFromTouch + xDistanceFromTouch) / (springHardness * 100)
         
         let attrs = behavior.items.first as! UICollectionViewLayoutAttributes
@@ -194,7 +225,8 @@ open class VegaScrollFlowLayout: UICollectionViewFlowLayout {
 		guard threshold > xOrigin else {
 			return 1
 		}
-        var arg = (x - xOrigin)/(threshold - xOrigin)
+        
+        var arg = (x - xOrigin) / (threshold - xOrigin)
         arg = arg <= 0 ? 0 : arg
         let y = sqrt(arg)
         return y > 1 ? 1 : y
@@ -204,10 +236,22 @@ open class VegaScrollFlowLayout: UICollectionViewFlowLayout {
 		return distributor(x: x, threshold: itemSize.height * 0.5, xOrigin: -itemSize.height * 5)
     }
     
+    private func scaleDistributorHorizontal(x: CGFloat) -> CGFloat {
+        return distributor(x: x, threshold: itemSize.width * 0.5, xOrigin: -itemSize.width * scaleMulti)
+    }
+    
+    private func alphaDistributorX(x: CGFloat) -> CGFloat {
+        return distributor(x: x, threshold: itemSize.width * 0.5, xOrigin: -itemSize.width)
+    }
+    
     private func alphaDistributor(x: CGFloat) -> CGFloat {
 		return distributor(x: x, threshold: itemSize.height * 0.5, xOrigin: -itemSize.height)
     }
-	
+    
+    private func getXDelta(x: CGFloat) -> CGFloat {
+        return itemSize.width * 0.5 - x
+    }
+    
 	private func getYDelta(y: CGFloat) -> CGFloat {
 		return itemSize.height * 0.5 - y
 	}
